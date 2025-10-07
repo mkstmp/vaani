@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+authlib
+google-cloud-storage
+google-cloud-firestore
+python-dotenv
+jinja2

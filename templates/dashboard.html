@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Voice App Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    .floating-btn {
+      position: absolute;
+      bottom: 2.8rem;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.6); }
+      50% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+    }
+    .pulse {
+      animation: pulse-glow 2s infinite;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-indigo-50 to-blue-100 min-h-screen font-sans relative">
+
+  <div x-data="{ tab: 'record', showBanner: true }"
+       class="flex flex-col min-h-screen max-w-md mx-auto bg-white shadow-lg relative rounded-t-3xl overflow-hidden">
+
+    <!-- Welcome Banner -->
+    <div x-show="showBanner"
+         x-transition.opacity
+         x-init="setTimeout(() => showBanner = false, 6000)"
+         class="m-4 p-4 rounded-xl shadow-md bg-gradient-to-r from-indigo-100 to-blue-50 border border-indigo-200 text-center">
+      <h2 class="text-xl font-semibold text-indigo-700">
+        👋 Welcome, {{ user.name or user.email }}!
+      </h2>
+      <p class="text-sm text-gray-600">
+        You are logged in as <b>{{ user.email }}</b>
+      </p>
+
+      {% if user.email == ADMIN_EMAIL %}
+      <p class="mt-2 text-sm font-semibold text-amber-600">
+        ⚙️ Admin Mode Active — You can import texts, view all recordings, and manage data.
+      </p>
+      {% else %}
+      <p class="mt-2 text-sm text-green-600">
+        🎤 Ready to record your next text? Tap below to begin!
+      </p>
+      {% endif %}
+    </div>
+
+    <!-- Page Content -->
+    <div class="flex-1 overflow-y-auto p-4">
+      <template x-if="tab === 'record'">
+        <div x-transition>
+          {% include 'components/record_tab.html' %}
+        </div>
+      </template>
+
+      <template x-if="tab === 'search'">
+        <div x-transition>
+          {% include 'components/search_tab.html' %}
+        </div>
+      </template>
+
+      <template x-if="tab === 'progress'">
+        <div x-transition>
+          {% include 'components/progress_tab.html' %}
+        </div>
+      </template>
+
+      {% if user.email == ADMIN_EMAIL %}
+      <template x-if="tab === 'admin'">
+        <div x-transition>
+          {% include 'components/admin_tab.html' %}
+        </div>
+      </template>
+      {% endif %}
+    </div>
+
+    <!-- Floating Record Button -->
+    <button @click="tab='record'"
+            class="floating-btn bg-indigo-600 hover:bg-indigo-700 text-white p-5 rounded-full shadow-2xl border-4 border-white transition-all duration-300 hover:scale-105 pulse">
+      🎤
+    </button>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 flex justify-around items-center h-16 shadow-lg">
+      <button @click="tab='search'"
+              :class="tab==='search' ? 'text-indigo-700' : 'text-gray-500'"
+              class="flex flex-col items-center">
+        🔍 <span class="text-xs">Search</span>
+      </button>
+
+      <button @click="tab='progress'"
+              :class="tab==='progress' ? 'text-indigo-700' : 'text-gray-500'"
+              class="flex flex-col items-center">
+        📊 <span class="text-xs">Progress</span>
+      </button>
+
+      {% if user.email == ADMIN_EMAIL %}
+      <button @click="tab='admin'"
+              :class="tab==='admin' ? 'text-indigo-700' : 'text-gray-500'"
+              class="flex flex-col items-center">
+        ⚙️ <span class="text-xs">Admin</span>
+      </button>
+      {% endif %}
+
+      <button @click="window.location='/logout'"
+              class="flex flex-col items-center text-gray-500">
+        🚪 <span class="text-xs">Logout</span>
+      </button>
+    </nav>
+  </div>
+</body>
+</html>
