@@ -4,4 +4,6 @@ authlib
 google-cloud-storage
 google-cloud-firestore
 python-dotenv
-jinja2itsdangerous
+jinja2
+itsdangerous
+python-multipart
