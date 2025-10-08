@@ -1,12 +1,14 @@
 import os
 import csv
 from fastapi import (
-    FastAPI, Request, UploadFile, Form, File, HTTPException, status
+    FastAPI, Request, UploadFile, Form, File, HTTPException
 )
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware import Middleware
 from authlib.integrations.starlette_client import OAuth
 from google.cloud import firestore
 from dotenv import load_dotenv
@@ -24,18 +26,57 @@ from gcs_utils import (
 )
 
 # -------------------------------------------------
-# Environment & App setup
+# Load environment variables
 # -------------------------------------------------
 load_dotenv()
-app = FastAPI()
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SESSION_SECRET", "Anaya"))
+
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "youradmin@gmail.com")
+
+# -------------------------------------------------
+# Auth middleware
+# -------------------------------------------------
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        public_paths = ("/login", "/auth", "/static", "/favicon.ico")
+        if any(request.url.path.startswith(p) for p in public_paths):
+            return await call_next(request)
+
+        session = request.scope.get("session")
+        user = None
+        if session and isinstance(session, dict):
+            user = session.get("user")
+
+        if not user:
+            print(f"⚠️ Unauthorized access to {request.url.path} — redirecting to /login")
+            return RedirectResponse(url="/login")
+
+        return await call_next(request)
+
+
+# -------------------------------------------------
+# ✅ Explicit middleware ordering
+# -------------------------------------------------
+middleware = [
+    Middleware(
+        SessionMiddleware,
+        secret_key=os.getenv("SESSION_SECRET", "Anaya"),
+        same_site="lax",
+        https_only=False,  # change to True on Render
+    ),
+    Middleware(AuthMiddleware)
+]
+
+app = FastAPI(middleware=middleware)
+
+# -------------------------------------------------
+# Templates & Static setup
+# -------------------------------------------------
 templates = Jinja2Templates(directory="templates")
 
 if not os.path.exists("static"):
     os.makedirs("static")
-app.mount("/static", StaticFiles(directory="static"), name="static")
 
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "youradmin@gmail.com")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # -------------------------------------------------
 # Google OAuth configuration
@@ -50,28 +91,13 @@ oauth.register(
 )
 
 # -------------------------------------------------
-# Authentication middleware
-# -------------------------------------------------
-@app.middleware("http")
-async def auth_middleware(request: Request, call_next):
-    public_paths = {"/login", "/auth", "/static", "/favicon.ico"}
-    if any(request.url.path.startswith(path) for path in public_paths):
-        return await call_next(request)
-
-    user = request.session.get("user")
-    if not user:
-        print(f"⚠️ Unauthorized access to {request.url.path} — redirecting to /login")
-        return RedirectResponse(url="/login")
-
-    return await call_next(request)
-
-# -------------------------------------------------
 # Auth routes
 # -------------------------------------------------
 @app.get("/login")
 async def login(request: Request):
     redirect_uri = request.url_for("auth")
     return await oauth.google.authorize_redirect(request, redirect_uri)
+
 
 @app.get("/auth")
 async def auth(request: Request):
@@ -88,16 +114,18 @@ async def auth(request: Request):
         print(f"❌ Auth error: {e}")
         return RedirectResponse(url="/login")
 
+
 @app.get("/logout")
 async def logout(request: Request):
     request.session.pop("user", None)
-    return RedirectResponse(url="/login")
+    return RedirectResponse(url="/login?message=logged_out")
 
 # -------------------------------------------------
-# Helper
+# Helpers
 # -------------------------------------------------
 def get_current_user(request: Request):
-    return request.session.get("user")
+    session = request.scope.get("session")
+    return session.get("user") if session else None
 
 # -------------------------------------------------
 # Core routes
@@ -106,14 +134,24 @@ def get_current_user(request: Request):
 async def home_redirect():
     return RedirectResponse(url="/dashboard")
 
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login")
+
     next_text = get_text_for_user(user.get("name") or user.get("email"))
     stats = get_recording_progress()
     return templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "user": user, "next_text": next_text, "stats": stats, "ADMIN_EMAIL": ADMIN_EMAIL},
+        {
+            "request": request,
+            "user": user,
+            "next_text": next_text,
+            "stats": stats,
+            "ADMIN_EMAIL": ADMIN_EMAIL,
+        },
     )
 
 # -------------------------------------------------
@@ -139,13 +177,18 @@ async def upload_audio(
         user_email=user_email,
         user_name=user_name,
         audio_url=url,
-        transcript=text
+        transcript=text,
     )
 
     if text_id:
         mark_text_as_recorded(text_id)
 
-    return {"audio_url": url, "text": text, "uploaded_by": user_name, "user_email": user_email}
+    return {
+        "audio_url": url,
+        "text": text,
+        "uploaded_by": user_name,
+        "user_email": user_email,
+    }
 
 # -------------------------------------------------
 # Search API
@@ -161,7 +204,7 @@ async def search_api(query: str = ""):
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(request: Request):
     user = get_current_user(request)
-    if user["email"] != ADMIN_EMAIL:
+    if not user or user.get("email") != ADMIN_EMAIL:
         return HTMLResponse("<h3>Access denied: Admins only.</h3>", status_code=403)
 
     recordings = [
@@ -172,7 +215,8 @@ async def admin_dashboard(request: Request):
     ]
 
     return templates.TemplateResponse(
-        "admin.html", {"request": request, "recordings": recordings, "user": user},
+        "admin.html",
+        {"request": request, "recordings": recordings, "user": user},
     )
 
 # -------------------------------------------------
@@ -181,21 +225,26 @@ async def admin_dashboard(request: Request):
 @app.get("/import-texts", response_class=HTMLResponse)
 async def import_texts_page(request: Request):
     user = get_current_user(request)
-    if user["email"] != ADMIN_EMAIL:
+    if not user or user.get("email") != ADMIN_EMAIL:
         return HTMLResponse("<h3>Access denied: Admins only.</h3>", status_code=403)
-    return templates.TemplateResponse("import_texts.html", {"request": request, "message": None})
+    return templates.TemplateResponse(
+        "import_texts.html", {"request": request, "message": None}
+    )
+
 
 @app.post("/import-texts", response_class=HTMLResponse)
 async def import_texts_upload(request: Request, file: UploadFile = File(...)):
     user = get_current_user(request)
-    if user["email"] != ADMIN_EMAIL:
+    if not user or user.get("email") != ADMIN_EMAIL:
         return HTMLResponse("<h3>Access denied: Admins only.</h3>", status_code=403)
 
     content = await file.read()
     text_list = [row.strip() for row in content.decode("utf-8").splitlines() if row]
     add_text_entries(text_list)
     message = f"✅ Imported {len(text_list)} texts successfully."
-    return templates.TemplateResponse("import_texts.html", {"request": request, "message": message})
+    return templates.TemplateResponse(
+        "import_texts.html", {"request": request, "message": message}
+    )
 
 # -------------------------------------------------
 # Progress tracking (Admin)
@@ -203,11 +252,13 @@ async def import_texts_upload(request: Request, file: UploadFile = File(...)):
 @app.get("/progress", response_class=HTMLResponse)
 async def progress_page(request: Request):
     user = get_current_user(request)
-    if user["email"] != ADMIN_EMAIL:
+    if not user or user.get("email") != ADMIN_EMAIL:
         return HTMLResponse("<h3>Access denied: Admins only.</h3>", status_code=403)
 
     stats = get_recording_progress()
-    return templates.TemplateResponse("progress.html", {"request": request, "user": user, "stats": stats})
+    return templates.TemplateResponse(
+        "progress.html", {"request": request, "user": user, "stats": stats}
+    )
 
 # -------------------------------------------------
 # Next text API
@@ -217,9 +268,16 @@ async def next_text_api():
     next_text = get_next_unrecorded_text()
     return JSONResponse(next_text or {"text": None, "id": None})
 
+
 @app.get("/record", response_class=HTMLResponse)
 async def record_page(request: Request):
     user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login")
+
     ensure_user_text_exists(user.get("name") or user.get("email"))
     next_text = get_text_for_user(user.get("name") or user.get("email"))
-    return templates.TemplateResponse("components/record_tab.html", {"request": request, "user": user, "next_text": next_text})
+    return templates.TemplateResponse(
+        "components/record_tab.html",
+        {"request": request, "user": user, "next_text": next_text},
+    )
