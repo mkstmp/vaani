@@ -63,9 +63,14 @@ oauth.register(
 def require_login(request: Request):
     user = request.session.get("user")
     if not user:
-        print("⚠️ No session user found.")
-        raise HTTPException(status_code=401, detail="Not logged in")
+        print("⚠️ No session user found — redirecting to login.")
+        # For browser navigation
+        if "text/html" in request.headers.get("accept", ""):
+            return RedirectResponse(url="/login")
+        # For API calls
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not logged in")
     return user
+
 
 
 
