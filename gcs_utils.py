@@ -16,11 +16,6 @@ else:
     firestore_client = firestore.Client(database="audio-database")
 
 
-#firestore_client = firestore.Client()
-firestore_client = firestore.Client(database="audio-database")
-
-
-
 def upload_to_gcs(file_data, filename, content_type):
     client = storage.Client()
     bucket = client.bucket(BUCKET_NAME)
