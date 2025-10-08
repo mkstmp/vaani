@@ -5,6 +5,7 @@ import json, os
 from google.cloud import firestore
 from google.oauth2 import service_account
 
+
 BUCKET_NAME = "voice-app-audios"
 
 
@@ -12,13 +13,14 @@ creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
 if creds_json:
     creds = service_account.Credentials.from_service_account_info(json.loads(creds_json))
     firestore_client = firestore.Client(credentials=creds, project=creds.project_id, database="audio-database")
+    storage_client = storage.Client(credentials=creds, project=creds.project_id)
 else:
     firestore_client = firestore.Client(database="audio-database")
+    storage_client = storage.Client()
 
 
 def upload_to_gcs(file_data, filename, content_type):
-    client = storage.Client()
-    bucket = client.bucket(BUCKET_NAME)
+    bucket = storage_client.bucket(BUCKET_NAME)
     blob_name = f"uploads/{uuid.uuid4()}_{filename}"
     blob = bucket.blob(blob_name)
     blob.upload_from_string(file_data, content_type=content_type)
