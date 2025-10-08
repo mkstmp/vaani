@@ -4,9 +4,6 @@ from google.cloud import firestore
 
 BUCKET_NAME = "voice-app-audios"
 
-
-
-
 #firestore_client = firestore.Client()
 firestore_client = firestore.Client(database="audio-database")
 
@@ -21,17 +18,16 @@ def upload_to_gcs(file_data, filename, content_type):
     blob.make_public()
     return blob.public_url
 
-
-
-def save_recording_metadata(user_email, audio_url, text):
-    """Save one record (audio + text + user) to Firestore."""
+def save_recording_metadata(user_email, audio_url, transcript, user_name=None):
     doc_ref = firestore_client.collection("recordings").document()
     doc_ref.set({
         "user_email": user_email,
+        "user_name": user_name,
         "audio_url": audio_url,
-        "transcript": text,
+        "transcript": transcript,
         "timestamp": firestore.SERVER_TIMESTAMP,
     })
+
 
 def search_recordings_by_text(query_text: str):
     """Search Firestore recordings that contain the given text."""
