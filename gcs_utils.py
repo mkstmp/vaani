@@ -1,8 +1,20 @@
 from google.cloud import storage
 import uuid
 from google.cloud import firestore
+import json, os
+from google.cloud import firestore
+from google.oauth2 import service_account
 
 BUCKET_NAME = "voice-app-audios"
+
+
+creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+if creds_json:
+    creds = service_account.Credentials.from_service_account_info(json.loads(creds_json))
+    firestore_client = firestore.Client(credentials=creds, project=creds.project_id, database="audio-database")
+else:
+    firestore_client = firestore.Client(database="audio-database")
+
 
 #firestore_client = firestore.Client()
 firestore_client = firestore.Client(database="audio-database")
