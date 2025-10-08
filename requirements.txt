@@ -4,4 +4,4 @@ authlib
 google-cloud-storage
 google-cloud-firestore
 python-dotenv
-jinja2
+jinja2itsdangerous
